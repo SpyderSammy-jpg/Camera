@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>NASA Scanner</title>
+<title>NASA Smart Scanner</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -11,8 +11,8 @@
 body {
   margin:0;
   background:#000;
-  font-family:Arial;
   color:white;
+  font-family:Arial;
   text-align:center;
 }
 
@@ -22,7 +22,6 @@ body {
   font-size:20px;
 }
 
-/* CAMERA FRAME */
 #scanner {
   width:360px;
   height:270px;
@@ -34,21 +33,18 @@ body {
   background:black;
 }
 
-/* REAL CAMERA VIDEO */
 video {
   width:100%;
   height:100%;
   object-fit:cover;
 }
 
-/* SCAN LINE EFFECT */
 #scanline {
   position:absolute;
   width:100%;
   height:4px;
   background:red;
   animation:scan 2s linear infinite;
-  top:0;
 }
 
 @keyframes scan {
@@ -64,12 +60,40 @@ video {
 
 #cost {
   color:#ccc;
-  margin-top:5px;
+  margin-top:6px;
 }
 
 #conf {
   font-size:12px;
   color:#666;
+  margin-bottom:10px;
+}
+
+/* MANUAL INPUT */
+#manualBox {
+  margin-top:20px;
+}
+
+input {
+  padding:10px;
+  width:240px;
+  background:black;
+  border:2px solid red;
+  color:white;
+  text-align:center;
+}
+
+button {
+  padding:10px;
+  margin-left:5px;
+  background:black;
+  border:2px solid red;
+  color:white;
+  cursor:pointer;
+}
+
+button:hover {
+  background:red;
 }
 </style>
 </head>
@@ -87,104 +111,107 @@ video {
 <div id="cost"></div>
 <div id="conf"></div>
 
+<!-- 🧠 MANUAL MODE -->
+<div id="manualBox">
+  <input id="manualInput" placeholder="Enter item name (e.g. cup, straw, egg)">
+  <button onclick="manualSearch()">Search</button>
+</div>
+
 <script>
 const video = document.getElementById("video");
 
-// 🔴 CAMERA START (THIS IS THE IMPORTANT FIX)
+// CAMERA
 navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-.then(stream => {
-  video.srcObject = stream;
-})
-.catch(err => {
+.then(stream => video.srcObject = stream)
+.catch(() => {
   document.getElementById("title").innerText =
-    "Camera blocked — allow permission to continue";
+    "Camera blocked — allow permission";
 });
 
-const prices = {
-  cup: {n:"Cup", c:"$10,000.00"},
-  scissors: {n:"Scissors", c:"$250.00 PER DAY RENTAL"},
-  book: {n:"Baseboard (approx)", c:"$15,000.00"},
-  bottle: {n:"Straw-like object", c:"$2,000.00"},
-  cell: {n:"Marshmallow-type object", c:"$4,200.00"}
+// 🔴 FULL ITEM DATABASE
+const items = {
+  cup: {name:"Cup", cost:"$10,000.00"},
+  scissors: {name:"Scissors", cost:"$250.00 PER DAY RENTAL"},
+  baseboard: {name:"Baseboard", cost:"$15,000.00"},
+
+  "small index card": {name:"Small Index Card", cost:"SALE $2,000.00"},
+  "large index card": {name:"Large Index Card", cost:"SALE $3,000.00"},
+
+  "small straw": {name:"Small Straw", cost:"SALE $1,500.00"},
+  "large straw": {name:"Large Straw", cost:"SALE $2,000.00"},
+
+  "small marshmallow": {name:"Small Marshmallow", cost:"SALE $3,000.00"},
+  "medium marshmallow": {name:"Medium Marshmallow", cost:"SALE $4,200.00"},
+  "large marshmallow": {name:"Large Marshmallow", cost:"$5,500.00"}
 };
 
-function guessSize(box) {
-  let area = box[2] * box[3];
-  if (area < 60000) return "small";
-  if (area < 140000) return "medium";
-  return "large";
+// DISPLAY FUNCTION
+function show(itemKey) {
+  const item = items[itemKey];
+
+  if (!item) {
+    document.getElementById("name").innerText = "Unknown item";
+    document.getElementById("cost").innerText = "No data found";
+    document.getElementById("conf").innerText = "";
+    return;
+  }
+
+  document.getElementById("name").innerText = item.name;
+  document.getElementById("cost").innerText = "Cost: " + item.cost;
+  document.getElementById("conf").innerText = "Manual / AI match";
 }
 
-async function start() {
+// 🧠 MANUAL SEARCH
+function manualSearch() {
+  const val = document.getElementById("manualInput").value
+    .toLowerCase()
+    .trim();
+
+  show(val);
+}
+
+// 🧠 AI PART
+async function startAI() {
   const model = await cocoSsd.load();
+
+  let last = "";
 
   setInterval(async () => {
     const preds = await model.detect(video);
-
     if (!preds.length) return;
 
     const p = preds[0];
-    const size = guessSize(p.bbox);
 
-    let name = "Unknown item";
-    let cost = "No data";
+    let detected = p.class;
 
-    // 🔴 MAPPING LOGIC
-    if (p.class === "cup") {
-      name = "Cup";
-      cost = "$10,000.00";
+    // prevent spam updates
+    if (detected === last) return;
+    last = detected;
+
+    // SMART MAPPING
+    if (detected === "cup") show("cup");
+    else if (detected === "scissors") show("scissors");
+    else if (detected === "paper") show("baseboard");
+
+    else if (detected === "bottle") {
+      show("large straw");
     }
 
-    else if (p.class === "book") {
-      if (size === "small") {
-        name = "Small Index Card";
-        cost = "SALE $2,000.00";
-      } else if (size === "medium") {
-        name = "Large Index Card";
-        cost = "SALE $3,000.00";
-      } else {
-        name = "Baseboard";
-        cost = "$15,000.00";
-      }
+    else if (detected === "cell phone") {
+      show("medium marshmallow");
     }
 
-    else if (p.class === "bottle") {
-      if (size === "small") {
-        name = "Small Straw";
-        cost = "SALE $1,500.00";
-      } else {
-        name = "Large Straw";
-        cost = "SALE $2,000.00";
-      }
+    else {
+      document.getElementById("name").innerText = "Scanning...";
+      document.getElementById("cost").innerText = "";
+      document.getElementById("conf").innerText =
+        "AI sees: " + detected;
     }
 
-    else if (p.class === "cell phone") {
-      if (size === "small") {
-        name = "Small Marshmallow";
-        cost = "SALE $3,000.00";
-      } else if (size === "medium") {
-        name = "Medium Marshmallow";
-        cost = "SALE $4,200.00";
-      } else {
-        name = "Large Marshmallow";
-        cost = "$5,500.00";
-      }
-    }
-
-    else if (p.class === "scissors") {
-      name = "Scissors";
-      cost = "$250.00 PER DAY RENTAL";
-    }
-
-    document.getElementById("name").innerText = name;
-    document.getElementById("cost").innerText = "Cost: " + cost;
-    document.getElementById("conf").innerText =
-      "Confidence: " + Math.round(p.score * 100) + "%";
-
-  }, 1000);
+  }, 1200);
 }
 
-start();
+startAI();
 </script>
 
 </body>
